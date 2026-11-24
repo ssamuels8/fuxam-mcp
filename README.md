@@ -9,9 +9,9 @@ Lets Claude read **your own** Fuxam account: calendar, courses, go/no-go and fin
 
 ## How it works
 
-- It runs on your computer. Nothing is hosted, and it talks to Fuxam only.
+- It runs on your computer. Nothing is hosted, and it talks to Fuxam only. The one exception is the optional Google Assignment submit tool, which also opens Google's own assignment pages.
 - It keeps its own browser profile in `~/.fuxam-mcp/profile`. You sign in once in a normal browser window. The server never reads, stores or logs your password, cookies or tokens.
-- It only reads. Every tool is a `GET` request made from inside that signed-in page, or the text of a page. It cannot change anything in Fuxam (the experimental upload tool is off unless you switch it on).
+- It only reads. Every tool is a `GET` request made from inside that signed-in page, or the text of a page. It cannot change anything in Fuxam (the two experimental hand-in tools are off unless you switch them on).
 
 ## Install
 
@@ -77,12 +77,28 @@ Ask Claude: **"log in to Fuxam"**. A browser window opens. Sign in the way you a
 | `FUXAM_BASE_URL` | `https://fuxam.app` | Your institution's Fuxam address |
 | `FUXAM_LOCALE` | `en` | Language segment in Fuxam URLs |
 | `FUXAM_PROFILE_DIR` | `~/.fuxam-mcp/profile` | Where the browser profile lives |
-| `FUXAM_ENABLE_UPLOAD` | unset | `1` enables the experimental upload tool |
+| `FUXAM_ENABLE_UPLOAD` | unset | `1` enables the experimental File Upload tool |
+| `FUXAM_ENABLE_SUBMIT` | unset | `1` enables the experimental Google Assignment tools |
 
-## Submitting work
+## Submitting work (experimental, off by default)
 
-- **Google Assignment** requirements (most go/no-go and finals) are submitted in Google Assignments, outside Fuxam. This server tells you which are open; you submit in Google.
-- **File Upload** requirements: `upload_assignment_file` is **experimental, off by default, and has never completed a real upload**. It lists the upload buttons on My Studies and says whether Fuxam has each one enabled (a button stays disabled until your instructor sets a submission deadline). It attaches a file only after a dry run and your explicit confirmation, and it never presses a final submit button. Always check the result in Fuxam yourself, and do not rely on it for a deadline.
+Handing in work cannot always be undone, so both tools below are switched off until you turn them on, both do a dry run first, and both act only after you confirm the exact file and assignment.
+
+**Google Assignment** requirements (most go/no-go and finals) are handed in on Google's pages, which Fuxam opens for you.
+
+1. Turn the tools on. In Claude Code:
+
+   ```bash
+   claude mcp add fuxam -e FUXAM_ENABLE_SUBMIT=1 -- npx -y github:ssamuels8/fuxam-mcp
+   ```
+
+   In the Claude desktop app, add `"env": { "FUXAM_ENABLE_SUBMIT": "1" }` next to `"args"` in the config.
+2. Ask Claude: **"log in to Google for Fuxam"**. A window opens on Google's sign-in page; sign in with your school Google account. The server never sees your password.
+3. Ask Claude to submit, for example: "submit report.pdf from my Desktop for the Final Report of Lean Startup". Claude lists the matching assignment, shows its title, due date and status, and asks you before it attaches and submits.
+
+`submit_google_assignment` has been checked up to the dry run on a live account. **Linking a Google account, attaching a file and pressing Submit have not been verified yet.** Until they are, check the result in Google yourself and do not leave a deadline to this tool.
+
+**File Upload** requirements: `upload_assignment_file` (`FUXAM_ENABLE_UPLOAD=1`) **has never completed a real upload**. It lists the upload buttons on My Studies and says whether Fuxam has each one enabled (a button stays disabled until your instructor sets a submission deadline). It attaches a file only after a dry run and your explicit confirmation, and it never presses a final submit button.
 
 ## Troubleshooting
 
@@ -93,8 +109,8 @@ Ask Claude: **"log in to Fuxam"**. A browser window opens. Sign in the way you a
 
 ## Status
 
-Tested against one live student account in November 2026: sign-in, every read tool, and the upload tool's listing step.
-Not tested: a real file upload (every upload button on the test account was disabled), Fuxam in other languages, other institutions' Fuxam addresses, Windows and Linux.
+Tested against one live student account in November 2026: sign-in, every read tool, Google sign-in, and the listing and dry-run steps of both hand-in tools.
+Not tested: a real hand-in with either tool (attach and submit), Fuxam in other languages, other institutions' Fuxam addresses, Windows and Linux.
 
 ## Development
 
@@ -105,7 +121,7 @@ npm install
 node src/index.js
 ```
 
-Plain JavaScript (ES modules), no build step. Please keep every read tool `GET`-only, and never commit data from a real account.
+Plain JavaScript (ES modules), no build step. Please keep every read tool `GET`-only, keep the hand-in tools opt-in, and never commit data from a real account.
 
 ## License
 

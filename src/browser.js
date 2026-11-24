@@ -118,6 +118,33 @@ export async function interactiveLogin() {
   return who;
 }
 
+/**
+ * Open a visible window so the student can sign in to their school Google
+ * account themselves. Only needed for submitting Google Assignments. The
+ * session stays in the same local profile; this code never sees the password.
+ */
+export async function interactiveGoogleLogin() {
+  await launch(false);
+  try {
+    await page.goto("https://accounts.google.com/", { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
+    const done = page.waitForURL((u) => u.hostname === "myaccount.google.com", { timeout: 5 * 60 * 1000 }).then(() => "ok");
+    const refused = page
+      .getByText(/browser or app may not be secure|couldn.t sign you in/i)
+      .first()
+      .waitFor({ timeout: 5 * 60 * 1000 })
+      .then(() => "refused");
+    const result = await Promise.race([done, refused]);
+    done.catch(() => {});
+    refused.catch(() => {});
+    if (result === "refused") {
+      throw new Error("Google refused to sign in inside this server's browser window. Nothing was saved. Submit this assignment in your normal browser instead.");
+    }
+    return { googleSignedIn: true };
+  } finally {
+    await launch(true); // back to a background browser, same profile
+  }
+}
+
 export async function whoAmI() {
   const p = await ensureSession();
   return p.evaluate(() => {
