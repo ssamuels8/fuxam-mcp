@@ -32,7 +32,14 @@ export class NotLoggedInError extends Error {
 
 async function launch(headless) {
   await close();
-  fs.mkdirSync(PROFILE, { recursive: true });
+  fs.mkdirSync(PROFILE, { recursive: true, mode: 0o700 });
+  // The profile holds the signed-in session: keep it readable by this user only.
+  try {
+    fs.chmodSync(PROFILE, 0o700);
+    if (!process.env.FUXAM_PROFILE_DIR) fs.chmodSync(path.dirname(PROFILE), 0o700);
+  } catch {
+    /* not supported on this filesystem (e.g. Windows) */
+  }
   const opts = { headless, viewport: { width: 1440, height: 900 } };
   const missing = (e) => /executable doesn't exist|is not found at|playwright install/i.test(String(e?.message || e));
   try {

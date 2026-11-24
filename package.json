@@ -1,6 +1,6 @@
 {
   "name": "fuxam-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Unofficial MCP server that lets Claude read a student's own Fuxam account (calendar, courses, assignments, deadlines, materials).",
   "type": "module",
   "bin": {
