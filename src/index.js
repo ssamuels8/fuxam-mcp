@@ -425,21 +425,23 @@ if (process.env.FUXAM_ENABLE_SUBMIT === "1") {
       status: /Assignment submitted|Submitted on/i.test(body) ? "submitted" : /\bAssigned\b|Submit your work/i.test(body) ? "not submitted" : "unknown",
       submittedOn: pick(/Submitted on (.+? [AP]M)/i),
       canAddFiles: (await pg.getByRole("button", { name: /add files/i }).count()) > 0,
+      files: pick(/Your files (.+?) (?:Add files|Unsubmit)/i),
       pageText: body.slice(0, 700),
     };
   }
 
   server.tool(
     "submit_google_assignment",
-    "EXPERIMENTAL. Hand in a file for a 'Google Assignment' exam requirement (most go/no-go and final assignments). Needs google_login once. Step 1: call with no target_index to list the Google Assignment requirements on My Studies. Step 2: call with target_index (confirm=false) for a dry run: it opens the assignment and reports its title, due date, status and Google account; nothing is attached. If Google asks to link the Google account first, it says so and stops: call again with link_account=true only after the student approves linking that account. Step 3: only after the student has explicitly approved this exact file for this exact assignment, call with file_path and confirm=true: it attaches the file and presses Submit. Never set confirm=true or link_account=true on your own initiative; a submission may be impossible to undo after the due date. attach_only=true attaches without pressing Submit.",
+    "EXPERIMENTAL. Hand in a file for a 'Google Assignment' exam requirement (most go/no-go and final assignments). Needs google_login once. Step 1: call with no target_index to list the Google Assignment requirements on My Studies. Step 2: call with target_index (confirm=false) for a dry run: it opens the assignment and reports its title, due date, status and Google account; nothing is attached. If Google asks to link the Google account first, it says so and stops: call again with link_account=true only after the student approves linking that account. Step 3: only after the student has explicitly approved this exact file for this exact assignment, call with file_path and confirm=true: it attaches the file and presses Submit. Never set confirm=true or link_account=true on your own initiative; a submission may be impossible to undo after the due date. attach_only=true attaches without pressing Submit. remove_file takes an attached, not yet submitted file off the assignment again.",
     {
       target_index: z.number().int().min(0).optional(),
       file_path: z.string().optional().describe("Absolute path of the file on this computer"),
       link_account: z.boolean().default(false),
       attach_only: z.boolean().default(false),
+      remove_file: z.string().optional().describe("Name of an attached, not yet submitted file to take off the assignment again"),
       confirm: z.boolean().default(false),
     },
-    tool(async ({ target_index, file_path, link_account = false, attach_only = false, confirm = false }) =>
+    tool(async ({ target_index, file_path, link_account = false, attach_only = false, remove_file, confirm = false }) =>
       withPage(MY_STUDIES, async (tab) => {
         await expandAll(tab);
         const label = /^\s*(open google assignment|view your submission)\s*$/i;
@@ -490,12 +492,22 @@ if (process.env.FUXAM_ENABLE_SUBMIT === "1") {
               step: "stopped: Google asks to link a Google account to Assignments before this assignment opens. Nothing was clicked.",
               target,
               googleAccount: account,
+              googleWillAsk: "Linking lets Google Assignments create folders and manage files in this account's Google Drive, and send grades and submissions back to Fuxam.",
               next: "Ask the student whether to link this account. If yes, call again with link_account=true. If it is the wrong account, run google_login with the right one.",
             };
           }
           const consent = tab.context().waitForEvent("page", { timeout: 8000 }).catch(() => null);
           await gf.getByRole("button", { name: /^link$/i }).click();
           const consentPage = await consent;
+          if (consentPage) {
+            // Google opens a second page: "Link Google Account … Assignments will: create folders and
+            // manage files in your Google Drive, update grades and submissions to your LMS".
+            await consentPage.waitForLoadState("domcontentloaded").catch(() => {});
+            const ok = consentPage.getByRole("button", { name: /^\s*(link|continue|allow)\s*$/i }).first();
+            await ok.waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+            await ok.click({ timeout: 5000 }).catch(() => {});
+            await consentPage.waitForEvent("close", { timeout: 20000 }).catch(() => {});
+          }
           for (let i = 0; i < 60; i++) {
             await tab.waitForTimeout(500);
             gf = tab.frames().find((f) => GOOGLE.test(f.url())) || gf;
@@ -504,8 +516,9 @@ if (process.env.FUXAM_ENABLE_SUBMIT === "1") {
           }
           if (/Welcome to Assignments/i.test(frameText)) {
             const ask = consentPage && !consentPage.isClosed() ? squash(await consentPage.locator("body").innerText().catch(() => "")).slice(0, 400) : null;
+            const buttons = consentPage && !consentPage.isClosed() ? await consentPage.locator("button, [role=button]").evaluateAll((els) => els.map((e) => e.innerText.trim()).filter(Boolean)).catch(() => []) : [];
             await consentPage?.close().catch(() => {});
-            return { step: "stopped: linking did not finish. Google may need the student to approve something in a visible window.", target, googleAsked: ask };
+            return { step: "stopped: linking did not finish. Google may need the student to approve something in a visible window.", target, googleAsked: ask, googleButtons: buttons };
           }
         }
 
@@ -526,32 +539,49 @@ if (process.env.FUXAM_ENABLE_SUBMIT === "1") {
           await pg.getByText(/Due date|Submit your work|Assignment submitted/i).first().waitFor({ timeout: 30000 }).catch(() => {});
           await pg.waitForTimeout(1500);
           const before = await readAssignment(pg);
+          if (remove_file) {
+            if (before.status === "submitted") return { step: "stopped: already submitted, nothing was removed", target, assignment: before };
+            const row = pg.locator("div, li").filter({ hasText: remove_file }).filter({ has: pg.locator("button, [role=button]") }).last();
+            if (!(await row.count())) return { step: "stopped: no attached file with that name", target, assignment: before };
+            await row.locator("button, [role=button]").last().click();
+            await pg.waitForTimeout(2500);
+            const after = await readAssignment(pg);
+            return { step: after.pageText.includes(remove_file) ? "could not confirm the file was removed" : "file removed from the assignment (it stays in Google Drive)", target, assignment: after };
+          }
           if (!confirm) return { step: "dry run, nothing attached or submitted", target, assignment: before };
           if (before.status === "submitted") return { step: "stopped: Google already shows this assignment as submitted. Nothing was changed.", target, assignment: before };
           if (!before.canAddFiles) return { step: "stopped: no 'Add files' button on Google's page. Nothing was changed.", target, assignment: before };
 
           // Add files -> Google Drive picker (its own frame) -> Upload tab -> the file input.
           await pg.getByRole("button", { name: /add files/i }).first().click();
-          let picker = null;
-          for (let i = 0; i < 60 && !picker; i++) {
-            await pg.waitForTimeout(500);
-            picker = pg.frames().find((f) => /picker/i.test(f.url()) && f !== pg.mainFrame()) || null;
-          }
-          if (!picker) return { step: "stopped: Google's file picker did not open. Nothing was attached.", target, assignment: await readAssignment(pg) };
-          await picker.locator("[role=tab]").filter({ hasText: /^\s*upload\s*$/i }).first().click({ timeout: 30000 });
+          // The picker frame reloads while it starts up, so look it up afresh on every try.
+          const inAnyFrame = async (selector, opts) => {
+            for (let i = 0; i < 80; i++) {
+              for (const f of pg.frames()) {
+                if (f === pg.mainFrame()) continue;
+                const loc = f.locator(selector, opts).first();
+                if (await loc.count().catch(() => 0)) return loc;
+              }
+              await pg.waitForTimeout(500);
+            }
+            return null;
+          };
+          const uploadTab = await inAnyFrame("[role=tab]", { hasText: /^\s*upload\s*$/i });
+          if (!uploadTab) return { step: "stopped: Google's file picker did not show an Upload tab. Nothing was attached.", target, assignment: await readAssignment(pg) };
+          await uploadTab.click({ timeout: 15000 });
           const fileName = path.basename(file_path);
-          const input = picker.locator("input[type=file]").first();
-          await input.waitFor({ state: "attached", timeout: 15000 });
+          // Wait for the Upload panel itself ("Browse or drag files…") before touching its file box.
+          const browse = await inAnyFrame("button, [role=button]", { hasText: /^\s*browse\s*$/i });
+          if (!browse) return { step: "stopped: Google's file picker had no upload box. Nothing was attached.", target, assignment: await readAssignment(pg) };
+          await pg.waitForTimeout(1500);
+          const input = await inAnyFrame("input[type=file]");
+          if (!input) return { step: "stopped: Google's file picker had no upload box. Nothing was attached.", target, assignment: await readAssignment(pg) };
           await input.setInputFiles(file_path);
-          // Some picker versions want one more click to confirm the upload.
-          const insert = picker.getByRole("button", { name: /^\s*(upload|insert|add|select)\s*$/i }).first();
+          // Google uploads the file to the student's Drive, closes the picker and lists it under "Your files".
           let attached = false;
-          for (let i = 0; i < 180 && !attached; i++) {
+          for (let i = 0; i < 120 && !attached; i++) {
             await pg.waitForTimeout(1000);
             attached = squash(await pg.locator("body").innerText()).includes(fileName);
-            if (!attached && i > 4 && (await insert.isVisible().catch(() => false)) && (await insert.isEnabled().catch(() => false))) {
-              await insert.click().catch(() => {});
-            }
           }
           if (!attached) {
             return { step: "stopped: could not confirm the file was attached, so Submit was NOT pressed. Check the assignment in Google.", target, assignment: await readAssignment(pg) };

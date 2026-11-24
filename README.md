@@ -96,7 +96,9 @@ Handing in work cannot always be undone, so both tools below are switched off un
 2. Ask Claude: **"log in to Google for Fuxam"**. A window opens on Google's sign-in page; sign in with your school Google account. The server never sees your password.
 3. Ask Claude to submit, for example: "submit report.pdf from my Desktop for the Final Report of Lean Startup". Claude lists the matching assignment, shows its title, due date and status, and asks you before it attaches and submits.
 
-`submit_google_assignment` has been checked up to the dry run on a live account. **Linking a Google account, attaching a file and pressing Submit have not been verified yet.** Until they are, check the result in Google yourself and do not leave a deadline to this tool.
+The first time, Google asks to link your Google account to Assignments (this lets Assignments manage files in your Google Drive and send grades back to Fuxam). Claude asks you before it accepts that.
+
+`submit_google_assignment` has been checked on a live account for: Google sign-in, linking, attaching a file and removing it again. **Pressing the final Submit button has not been verified yet.** Check the result in Google yourself and do not leave a deadline to this tool. Every file you attach is also saved to your Google Drive.
 
 **File Upload** requirements: `upload_assignment_file` (`FUXAM_ENABLE_UPLOAD=1`) **has never completed a real upload**. It lists the upload buttons on My Studies and says whether Fuxam has each one enabled (a button stays disabled until your instructor sets a submission deadline). It attaches a file only after a dry run and your explicit confirmation, and it never presses a final submit button.
 
@@ -109,8 +111,8 @@ Handing in work cannot always be undone, so both tools below are switched off un
 
 ## Status
 
-Tested against one live student account in November 2026: sign-in, every read tool, Google sign-in, and the listing and dry-run steps of both hand-in tools.
-Not tested: a real hand-in with either tool (attach and submit), Fuxam in other languages, other institutions' Fuxam addresses, Windows and Linux.
+Tested against one live student account in November 2026: sign-in, every read tool, Google sign-in, and for Google Assignments the listing, dry run, account link, attach and remove steps.
+Not tested: the final Submit click on a Google Assignment, a real File Upload, Fuxam in other languages, other institutions' Fuxam addresses, Windows and Linux.
 
 ## Development
 
